@@ -1,0 +1,657 @@
+---
+title: "Report_G12"
+format: pdf
+editor: visual
+---
+
+\*--Coverpage----------------------------------\*\*
+
+\newpage
+
+## Introduction
+
+This report simulate a real-world e-commerce data environment where engaging end-to-end data management. The report is composed of 4 major tasks from database design to data analysis.
+
+```{r}
+install.packages("RSQLite")
+install.packages("dplyr")
+install.packages("ggplot2")
+install.packages("tidyverse")
+install.packages("rvest")
+install.packages("lubridate")
+install.packages("readr")
+install.packages("plotly")
+install.packages("DBI")
+install.packages("ggmap")
+install.packages("leaflet")
+install.packages("leaflet.extras")
+```
+
+```{r}
+#| echo: false
+knitr::opts_chunk$set(eva1 = FALSE)
+#Package to run SQL and R
+library(RSQLite)
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(rvest)
+library(lubridate)
+library(readr)
+library(DBI)
+library(ggmap)
+library(leaflet)
+library(leaflet.extras)
+library(plotly)
+
+```
+
+## Part 1: Database Design and Implementation
+
+### 1.1 E-R Diagram Design
+
+*\[Attach image \]*
+
+Our E-R Diagram that explains the e-commerce platform is composed of 7 entities which could be explained relationship as churns below:
+
+1.  **Customers:** The diagram begins with the Customer entity which has a unique customer ID as its primary key. The information stored as attributes in this entity would relate to the customer's personal details, address, and account information (e.g gender, postcode, account type).
+
+2.  **Orders:** The Customer entity shares a many to many (M:N) relationship with Products entity through the relationship Orders. As such, Orders contains the primary key "order_id" with the attributes order status and order date.
+
+3.  **Products:** The M:N relationship between customers and products is assumed as many customers can order one product and vice versa. The product entity contains attributes that describe the product (dimensions, description etc.) as well as categories.
+
+4.  **Suppliers:**Supplier sells Products on the ecommerce platform with a one to many (1:N) relationship as it is assumed that each supplier may sells multiple different products but the products are unique across suppliers. Attributes recorded pertain to the account information, contact, and name of the supplier.
+
+5.  **Order items:**
+
+6.  **Payments:**
+
+7.  **Shipments:**
+
+### 1.2 SQL Database Schema Creation
+
+To translate the E-R Diagram into functional SQL database schema, we have created 8 tables that consist of attributes and their data types below:
+
+```{r defineconnection}
+#Define connection to connect R with the database using package RSQLite. We defined our e-commerce database as "ecomm.db"
+connection <- RSQLite::dbConnect(RSQLite::SQLite(),"ecomm.db")
+```
+
+After that, we define create tables for each entity and relationship in below sections:
+
+1.  Customers
+
+```{sql connection=connection}
+CREATE TABLE Customers (
+    cust_id INT PRIMARY KEY,
+    cust_contact VARCHAR(11) NOT NULL CHECK (cust_contact NOT LIKE '%[^0-9]%'),
+    cust_email VARCHAR(100) NOT NULL UNIQUE,
+    cust_dob DATE CHECK (cust_dob <= CURRENT_DATE),
+    cust_gender CHAR(1) CHECK (cust_gender IN ('M', 'F', 'O')),
+    cust_fname VARCHAR(100) NOT NULL,
+    cust_lname VARCHAR(100),
+    cust_city VARCHAR(100) NOT NULL,
+    cust_postcode VARCHAR(100) NOT NULL,
+    cust_address VARCHAR(100) NOT NULL,
+    cust_active BOOLEAN NOT NULL,
+    cust_referral_id INT,
+    cust_type VARCHAR(100) NOT NULL,
+    cust_date_created DATE CHECK (cust_date_created <= CURRENT_DATE)
+);
+
+
+```
+
+2.  Orders (Relationship)
+
+```{sql connection=connection}
+CREATE TABLE Orders (
+  order_id INT PRIMARY KEY,
+  cust_id INT NOT NULL,
+  order_status VARCHAR (50) NOT NULL CHECK (order_status IN ('Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled')),
+  order_date DATE,
+  FOREIGN KEY('cust_id')
+    REFERENCES Customers('cust_id')
+  );
+```
+
+3.  Suppliers
+
+```{sql connection=connection}
+CREATE TABLE Suppliers (
+  supplier_id INT PRIMARY KEY,
+  supplier_name VARCHAR(100) NOT NULL,
+  supplier_city VARCHAR(100) NOT NULL,
+  supplier_address VARCHAR(100) NOT NULL,
+  supplier_postcode VARCHAR(10) NOT NULL,
+  supplier_email VARCHAR(100) NOT NULL UNIQUE CHECK (supplier_email LIKE '%@%.%'),
+  supplier_contact VARCHAR(11) NOT NULL CHECK (supplier_contact NOT LIKE '%[^0-9]%')
+);
+
+```
+
+4.  Products
+
+```{sql connection=connection}
+CREATE TABLE Products (
+  product_id INT PRIMARY KEY,
+  supplier_id INT NOT NULL,
+  products_category VARCHAR(100) NOT NULL,
+  product_name VARCHAR(100) NOT NULL,
+  product_description TEXT,
+  product_price DECIMAL (10,2) NOT NULL,
+  product_length DECIMAL (10,2) NOT NULL,
+  product_height DECIMAL (10,2) NOT NULL,
+  product_width DECIMAL (10,2) NOT NULL,
+  product_weight DECIMAL (10,2) NOT NULL,
+  FOREIGN KEY('supplier_id')
+    REFERENCES Suppliers('supplier_id')
+  );
+```
+
+5.  Advertisements
+
+```{sql connection=connection}
+CREATE TABLE Advertisements (
+  ads_id INT PRIMARY KEY,
+  product_id INT NOT NULL,
+  supplier_id INT NOT NULL,
+  ads_details TEXT,
+  ads_name VARCHAR (255) NOT NULL,
+  product_discount DECIMAL(3,2) CHECK (product_discount >= 0 AND product_discount <= 100),
+  discount_price DECIMAL (10,2) NOT NULL,
+  FOREIGN KEY('product_id')
+    REFERENCES Products('product_id'),
+  FOREIGN KEY('supplier_id')
+    REFERENCES Suppliers('supplier_id')
+    
+  );
+```
+
+6.Payments
+
+```{sql connection=connection}
+CREATE TABLE Payments (
+  payment_id INT PRIMARY KEY,
+  cust_id INT NOT NULL,
+  order_item_id INT NOT NULL,
+  payment_status VARCHAR(50) NOT NULL CHECK (payment_status IN ('Pending', 'Processing', 'Completed', 'Failed', 'Cancelled', 'Refund Completed', 'Refund Processing', 'Refund Failed')),
+  payment_method VARCHAR(50) NOT NULL CHECK (payment_method IN ('Credit Card', 'Debit Card', 'PayPal', 'Bank Transfer')),
+  FOREIGN KEY('cust_id')
+    REFERENCES Customers('cust_id'),
+  FOREIGN KEY('order_item_id')
+    REFERENCES Order_items('order_item_id')
+  );
+```
+
+7.  Order items
+
+```{sql connection=connection}
+CREATE TABLE Order_items (
+  order_item_id INT PRIMARY KEY,
+  order_id INT NOT NULL,
+  product_id INT,
+  advertisement_id INT,
+  order_item_quantity INT NOT NULL,
+  order_item_unit_price DECIMAL (10,2) NOT NULL,
+  FOREIGN KEY('order_id')
+    REFERENCES Orders('order_id'),
+  FOREIGN KEY('product_id')
+    REFERENCES Products('product_id'),
+  FOREIGN KEY('advertisement_id')
+    REFERENCES Advertisements('advertisement_id')
+    
+  );
+```
+
+8.  Shipments
+
+```{sql connection=connection}
+CREATE TABLE Shipments (
+  shipment_id INT PRIMARY KEY,
+  order_id INT NOT NULL,
+  cust_id INT NOT NULL,
+  shipment_date DATE,
+  shipment_company VARCHAR(100) NOT NULL,
+  shipment_postcode VARCHAR(100) NOT NULL,
+  shipment_city VARCHAR(100) NOT NULL,
+  shipment_address VARCHAR(100) NOT NULL,
+  shipment_status VARCHAR (20) CHECK (shipment_status IN ('Pending', 'In Transit', 'Delivered', 'Cancelled')),
+  FOREIGN KEY('order_id')
+    REFERENCES Orders('order_id'),
+  FOREIGN KEY('cust_id')
+    REFERENCES Customers('cust_id')
+  );
+```
+
+## Part 2: Data Generation and Management
+
+### 2.1 Synthetic Data Generation
+
+-   Generate data with Python (put Python code in appx?) -put python in appx
+
+```{python}
+
+```
+
+<!-- -->
+
+### 2.2 Data Import and Quality Assurance
+
+In this step, we imported the dataset using the concept of database driver between R and SQL and E-T-L.
+
+```{r dataloading, message=FALSE, warning=FALSE}
+#Import the data generating from Python
+Advertisements <- readr::read_csv("dataset/Advertisements.csv")
+Customers <- readr::read_csv("dataset/Customers.csv")
+Order_items <- readr::read_csv("dataset/Order_items.csv")
+Orders <- readr::read_csv("dataset/Orders.csv")
+Payments <- readr::read_csv("dataset/Payments.csv")
+Products <- readr::read_csv("dataset/Products.csv")
+Shipments <- readr::read_csv("dataset/Shipments.csv")
+Suppliers <- readr::read_csv("dataset/Suppliers.csv")
+map <- readr:: read_csv("Postcode districts.csv")
+```
+
+```{r writebacktodb}
+#Write data into the database using RSQLite function
+RSQLite::dbWriteTable(connection,"Advertisements",Advertisements,append=TRUE)
+RSQLite::dbWriteTable(connection,"Customers",Customers,append=TRUE)
+RSQLite::dbWriteTable(connection,"Order_items",Order_items,append=TRUE)
+RSQLite::dbWriteTable(connection,"Orders",Orders,append=TRUE)
+RSQLite::dbWriteTable(connection,"Payments",Payments,append=TRUE)
+RSQLite::dbWriteTable(connection,"Products",Products,append=TRUE)
+RSQLite::dbWriteTable(connection,"Shipments",Shipments,append=TRUE)
+RSQLite::dbWriteTable(connection,"Suppliers",Suppliers,append=TRUE)
+RSQLite::dbWriteTable(connection,"maps",map,append=TRUE)
+```
+
+-   Data Integrity Check for no. of rows and columns for each table
+
+```{r loop,message=FALSE,warning=FALSE,attr.source='.numberLines'}
+
+all_files <- list.files("dataset/")
+
+for (variable in all_files) {
+  this_filepath <- paste0("dataset/",variable)
+  this_file_contents <- readr::read_csv(this_filepath)
+  
+  number_of_rows <- nrow(this_file_contents)
+  number_of_columns <- ncol(this_file_contents)
+  
+  print(paste0("The file: ",variable,
+              " has: ",
+              format(number_of_rows,big.mark = ","),
+              " rows and ",
+              number_of_columns," columns"))
+}
+
+```
+
+-   Check if the first column of each file is a primary key
+
+```{r checkprimary,message=FALSE,warning=FALSE,attr.source='.numberLines'}
+#automate uni-testing #use this instead
+
+for (variable in all_files) {
+  this_filepath <- paste0("dataset/",variable)
+  this_file_contents <- readr::read_csv(this_filepath)
+  number_of_rows <- nrow(this_file_contents)
+  
+  print(paste0("Checking for: ",variable))
+  
+  print(paste0(" is ",nrow(unique(this_file_contents[,1]))==number_of_rows))
+}
+```
+
+## Part 3: Data Pipeline Generation
+
+### 3.1 Github Repository and Workflow Setup
+
+GitHub workflows streamline the software development lifecycle, making it more efficient, reliable, and collaborative. To collaborate out e-commerce project as a team, we created Github account. \[User id & link\] with the repository called "xxxxxx" \[Insert link\]
+
+\[Inset Github Repository Link\]
+
+### 3.2 Github Actions for Continuous Integration
+
+Automating data validation, database updates, and basic data analysis tasks using GitHub Actions improves efficiency, reliability, and scalability while ensuring consistency and integration with other tools in the development workflow.
+
+For our e-commerce project, we chose "xxxx.R" to present our data analysis sections and the update
+
+\[Link to workflow actions and show the changes in chart\]
+
+```{r}
+#Code to append data
+
+
+```
+
+## Part 4
+
+### 4.1 Advanced Data Analysis in R
+
+To conduct advanced data analysis on our e-commerce database, we we created xx graphs to illustrate the insights of R by first, executing SQL query to retrieve data using RSQLite and DBI functions, then creating the new data frame by the analysis that we would like to present. To present our data, we applied various packages in R which could be described in the table below.
+
+| Functions                  | Description                                                                                    |
+|:-------------------|:---------------------------------------------------|
+| tidyverse                  | Data manipulation and analysis in R                                                            |
+| ggplot2                    | Offers data visualisation tools especially for plots and graphs                                |
+| ggmap                      | Allows for easy integration of Google Maps and other mapping data into ggplot2                 |
+| plotly                     | Enables the creation of Interactive graphs                                                     |
+| lubridate                  | Data manipulation especially with time series data                                             |
+| leaflet and leaflet.extras | Customisable framework for creating interactive maps with additional features such as heatmaps |
+
+: Table 1: Functions incorporated for data analysis
+
+We have analysed the e-commerce database in xx areas below.
+
+1.  Customer distribution analysis based on the order amounts
+
+To analyse customer distribution analysis based on the order amounts, we have to join three tables, Customers, Orders and Orders Item and named it as "cus_o_oi". Customers table contains key data that we would like to analyse such as customer's date of birth whereas we use Orders to retract the order_id from Orders_items which has information about the order quantity for each order_id and cust_id.
+
+We begin with data preparation by creating the dataframe for the joined three tables.
+
+```{r}
+# Join "Customers", "Orders", and "Order_items" tables using inner join
+joint_cust_query <- "
+SELECT 
+    c.cust_id,
+    c.cust_dob,
+    o.order_id,
+    o.order_date,
+    oi.order_item_quantity,
+    oi.order_item_unit_price
+FROM 
+    order_items AS oi
+    JOIN orders AS o ON oi.order_id = o.order_id
+    JOIN customers AS c ON o.cust_id = c.cust_id;"
+
+
+cus_o_oi <- DBI::dbGetQuery(connection, joint_cust_query)
+
+# Maintain "cust_dob" and "order_date" columns to the same data type
+cus_o_oi$cust_dob <- as.Date(cus_o_oi$cust_dob)
+cus_o_oi$order_date <- as.POSIXct(cus_o_oi$order_date)
+```
+
+After that, we created the new data frame called "cust_analysis" to manipulate/analyse the data without interrupting the data above.
+
+```{r}
+# To begin with, we create the new column "cust_yob" to extract only year of birth data from customer's date of birth, then create another column "cust_age" from cust_yob.
+cust_analysis <- cus_o_oi %>%
+  mutate(cust_year_of_birth = lubridate::year(cust_dob),
+         cust_age = 2024 - cust_year_of_birth)
+
+
+
+#Then, we created cust_group data frame to overview current age group of customers
+cust_group <- cust_analysis %>% 
+              group_by(age_range = cut(cust_age, breaks = c(0, 20, 30, 40, 50, Inf), labels = c("Under 20", "21-30", "31-40", "41-50", "51+"))) %>%
+              summarize(total_customers = n(),
+                        average_age = mean(cust_age))
+#View the result
+cust_group
+```
+
+```{r}
+#Summarise Orders quantity based on Orders
+# Define custom age ranges
+age_ranges <- c("Under 20", "21-30", "31-40", "41-50", "51+")
+
+# Convert cust_age to factor with custom age ranges
+cust_analysis$cust_age_range <- cut(cust_analysis$cust_age, breaks = c(0, 20, 30, 40, 50, Inf), labels = age_ranges, right = FALSE)
+
+# Plot the data as a bar plot
+cust_order_plot <- plot_ly(data = cust_analysis, x = ~cust_age_range, y = ~order_item_quantity, type = 'bar', marker = list(color = '#1f77b4')) %>%
+  layout(xaxis = list(title = "Age Range"),
+         yaxis = list(title = "Total Order Items Quantity"),
+         title = "Total Order Items Quantity by Age Range")
+
+
+# View the result
+cust_order_plot
+```
+
+The result shows that the majority of the platform's customers are those who age from 21-30 and 31-40. This is useful for the platform to target the customers easier when they want to launch the campaign or promotions.
+
+2.  Analysis of the platform growth #can directly use cus_o_oi
+
+```{r}
+# To analyse the platform growth, we can directly use the data from cus_o_oi data frame
+order_analysis <- cus_o_oi %>%
+  mutate(
+    year = lubridate::year(order_date),  # Extract year
+    month = lubridate::month(order_date), # Extract month
+    order_value = order_item_quantity * order_item_unit_price # to get the order value
+  )
+
+# Convert year and month to a date format
+order_analysis$date <- as.Date(paste(order_analysis$year, order_analysis$month, "01", sep = "-"), "%Y-%m-%d")
+
+# Generate a line graph to the growth
+order_growth_plot <- ggplot(order_analysis, aes(x = date, y = order_value)) +
+  geom_line(color = "lightblue") +
+  geom_smooth(method = "loess", se = FALSE, color = "skyblue") +  # Add smoother
+   geom_area(fill = "lightgrey", alpha = 0.3) +
+  labs(x = "Date", y = "Order Value", title = "Order Value Growth per Quarter") +
+  scale_x_date(date_labels = "%Y-%m", date_breaks = "3 months") +
+  theme_minimal() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Display the line plot
+print(order_growth_plot)
+
+```
+
+3.  Supplier Analysis
+
+```{r}
+# Query the data from the database and create a data frame for supplier. 
+supplier_query <- "SELECT * FROM Suppliers"
+
+supplier_df <- DBI::dbGetQuery(connection, supplier_query)
+```
+
+```{r}
+# Mutate new column to specify which suppliers define as "Entity" or "Individual"
+supplier_df <- supplier_df %>%
+  mutate(supplier_type = if_else(
+    grepl("PLC|Inc|LLC|Ltd|Group", supplier_name, ignore.case = TRUE),
+    "Entity", "Individual"
+  ))
+
+#Group the supplier types
+supplier_analysis <- supplier_df %>%
+  group_by(supplier_type) %>%
+  summarize(count = n())
+
+# Plot the counts using ggplot
+supplier_plot <- ggplot(supplier_analysis, aes(x = supplier_type, y = count, fill = supplier_type)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Supplier Type", y = "Count", title = "Supplier Analysis") +
+  theme_minimal()
+
+#View the result
+supplier_plot
+```
+
+From the result, it could be seen that the majority of the sellers in e-commerce database is "". This is a useful information for the platform. For example, the high percentage of entity suppliers indicating professionalism and reliability so it increases customer trusts. As we set the assumption that the e-commerce is the start-up, the individual suppliers still high.
+
+4.  Payment method analysis
+
+```{r}
+# Query the data from the database and create a data frame for payment. 
+payment_query <- "SELECT * FROM Payments"
+
+payment_df <- DBI::dbGetQuery(connection, payment_query)
+```
+
+```{r}
+# Analyse payment method
+
+
+#Group the payment types
+payment_analysis <- payment_df %>%
+  group_by(payment_method) %>%
+  summarize(count = n())
+
+# Define colors for each payment method
+colors <- c("skyblue", "palegreen2", "pink", "peachpuff1")
+
+# Create pie chart using plotly
+pie_chart_payment <- plot_ly(
+  payment_analysis,
+  labels = ~payment_method,
+  values = ~count,
+  type = "pie",
+  marker = list(colors = colors)
+) %>%
+  layout(title = "Payment Analysis")
+
+# Display the pie chart
+pie_chart_payment
+```
+
+According to the result, it could be seen that the most popular method that is used by customer uses is "Credit Card" and "Debit Card". This information is useful for the platform to improve the payment performance and the ease of payment.
+
+5.Shipment Analysis: Geographical map
+
+```{r}
+# Create a data frame for shipment. Information of city, longitude and latitude from maps csv. file
+shipment_query <- "SELECT a.shipment_city AS City, b.Latitude AS shipment_latitude, b.Longitude AS shipment_longitude
+FROM shipments a
+JOIN maps b ON a.shipment_city = b.Town;"
+
+shipment_df <- DBI::dbGetQuery(connection, shipment_query)
+```
+
+```{r}
+# Input longitude and latitude details
+locations <- data.frame(
+  lon = shipment_df$shipment_longitude,
+  lat = shipment_df$shipment_latitude
+)
+
+# Create a UK map showing where shipments headed
+UK_map <- leaflet(locations) %>%
+  addTiles() %>%
+  addHeatmap(
+    lng = ~lon,
+    lat = ~lat,
+    blur = 0,
+    max= 4
+ )
+#Print the result
+UK_map
+```
+
+Based on the result, the heatmap shows where shipment mostly located which in the case is "xx". This figure is useful for the ecommerce company if the company would like to establish the delivery hub, which should be located where customer located the most based on the delivery information.
+
+6.  Order Analysis
+
+```{r}
+# Selecting order_id and date of order placed
+order_query <- "SELECT order_id AS Orders, order_date AS Date_Ordered
+FROM orders;"
+
+order_df <- DBI::dbGetQuery(connection, order_query)
+
+# Converting date format and creating a new variable for month
+order_df <- mutate(order_df, Date_Ordered = as.POSIXct(order_df$Date_Ordered, origin = "1970-01-01", tz = "UTC"),
+                   Month = format(Date_Ordered, "%b"))
+
+# Ordering months
+order_df$Month <- factor(order_df$Month, levels = c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))
+
+# Plotting number of orders per month
+fig_order <- ggplot(order_df, aes(x = Month)) +
+  geom_bar(fill = "skyblue", color = "black") +
+  labs(title = "Orders Per Month", x = "Month", y = "Count")
+
+#View the result
+ggplotly(fig_order)
+```
+
+The order quantity graph allows us to see the growth of each month. In this case it could be seen that the quantity per month is average around 15 orders. However, it is obvious that order volumns decreases significantly in October, therefore, the platform may push the order volumns by launching more advertisement this month.
+
+7.  Advertisement Analysis
+
+```{r}
+# Selecting all orders placed based on ads_id
+ads_query <- "SELECT order_id AS Orders, advertisement_id AS Ads_ID, order_item_quantity AS Quantity_Ordered
+FROM order_items;"
+
+ads_order_items_df <- DBI::dbGetQuery(connection, ads_query)
+
+# Creating new column for presence of Advertisement
+ads_order_items_df <- mutate(ads_order_items_df, Ads_Present = ifelse(is.na(Ads_ID), "No Advertisement", "Advertisement Present"))
+
+# Factorising Ads Present column
+ads_order_items_df$Ads_Present <- as.factor(ads_order_items_df$Ads_Present)
+
+# Plot showing the differnce in orders placed with and without advertisements
+fig_ads <- ggplot(ads_order_items_df, aes(x = Ads_Present, fill = Ads_Present)) +
+  geom_bar() +
+  labs(title = "Distribution of Ads Presence", x = "Advertisement", y = "Number of Sales") +
+  theme(legend.position = "none")
+
+ggplotly(fig_ads)
+
+```
+
+From the result, it could be observed that advertisement present significantly impact the order amount. Therefore, this is a useful information for the platform to push the sales in a particular month as advertisement pushes the customers to purchase the product more.
+
+8.  Categories Analysis
+
+```{r}
+# Selecting Product ID, Category, and Order Date
+cat_query <- "SELECT a.product_id AS Product_ID, a.products_category AS Category, b.order_date AS Order_Date
+FROM Products a
+JOIN order_items c ON a.product_id = c.product_id
+JOIN Orders b ON b.order_id = c.order_id;"
+
+categories_df <- DBI::dbGetQuery(connection, cat_query)
+
+# Manipulating date, creating month column and counting number of times category was ordered in a month
+categories_df <- mutate(categories_df, Order_Date = as.POSIXct(categories_df$Order_Date, origin = "1970-01-01", tz = "UTC"),
+                   Month = format(Order_Date, "%b")) %>% select(Category, Month) %>% count(Category, Month, name = "Count")
+
+# Ordering months
+categories_df$Month <- factor(categories_df$Month, levels = c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))
+
+# Plot showing number of orders placed each month across all categories
+fig_cat <- ggplot(categories_df, aes(x = Month, y = Count, group=Category, color=Category)) + geom_point() +geom_line()
+
+#View the result
+ggplotly(fig_cat)
+
+```
+
+The category plot allows us to observe which categories people purchase the most in each month. This is beneficial to the platform to launch the campaign on each month based on the data. For example xxxx 's sales is peak during xxx. So the platform could encourage the suppliers to launch campaigns related to xxx during xxxx.
+
+After Analysis, we have to disconnect the database to improve the overall performance of the database system by reducing the number of active connections it needs to manage.
+
+```{r}
+#Disconnect Database
+RSQLite::dbDisconnect(connection)
+```
+
+## 4.2 E-commerce Comprehensive report
+
+Insert the graph above to analyse
+
+-Platform growth
+-customer analysis & supplier type (show as grid)
+-orders per month
+-Impact on ads
+-category
+-payment method
+-Shipment
+
+Summarise
+
+
+## Appendices
+
+### Appendix 1: Relationship circle (?)
+
+### Appendix 2: Python code for data generation in Part 2
